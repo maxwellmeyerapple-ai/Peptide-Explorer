@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Peptide Explorer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    background: radial-gradient(ellipse at 50% 30%, #0f1e3a 0%, #060d1f 70%);
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+    overflow: hidden;
+    color: #fff;
+  }
+
+  /* ── Header ─────────────────────────────────────────── */
+  #header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+    padding: 16px 20px 10px;
+    background: linear-gradient(180deg, rgba(6,13,31,0.95) 60%, transparent);
+    text-align: center;
+  }
+  #header h1 {
+    font-size: clamp(18px, 4vw, 24px);
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    background: linear-gradient(90deg, #60a5fa, #a78bfa, #34d399);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  #header p {
+    font-size: 11px; color: #64748b; margin-top: 3px; letter-spacing: 0.3px;
+  }
+
+  /* ── SVG canvas ─────────────────────────────────────── */
+  #canvas-wrap {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #main-svg { overflow: visible; }
+
+  .link-line {
+    stroke: rgba(96,165,250,0.2); stroke-width: 1.5;
+    stroke-dasharray: 4 4;
+    animation: dash 20s linear infinite;
+  }
+  @keyframes dash { to { stroke-dashoffset: -200; } }
+
+  /* ── Bubble nodes ───────────────────────────────────── */
+  .node { cursor: pointer; }
+  .node circle.bg {
+    transition: r 0.25s ease, filter 0.25s ease;
+    filter: drop-shadow(0 0 10px var(--glow));
+  }
+  .node:hover circle.bg, .node.active circle.bg {
+    filter: drop-shadow(0 0 22px var(--glow)) drop-shadow(0 0 8px var(--glow));
+  }
+  .node .pulse-ring {
+    fill: none; stroke: var(--glow); stroke-width: 2;
+    opacity: 0; transform-origin: center;
+    animation: pulse-out 2.8s ease-out infinite;
+  }
+  .node.active .pulse-ring { opacity: 1; }
+  @keyframes pulse-out {
+    0%   { r: var(--pr-start); opacity: 0.7; }
+    100% { r: var(--pr-end);   opacity: 0; }
+  }
+
+  .node text.emoji { dominant-baseline: central; text-anchor: middle; font-size: 22px; pointer-events: none; }
+  .node text.label {
+    dominant-baseline: central; text-anchor: middle;
+    font-size: 10px; font-weight: 600; fill: #e2e8f0;
+    pointer-events: none; letter-spacing: 0.2px;
+  }
+  .node text.status-dot { dominant-baseline: central; text-anchor: middle; font-size: 9px; pointer-events: none; }
+
+  /* Centre node specifics */
+  .center-node text.emoji { font-size: 32px; }
+  .center-node text.label { font-size: 13px; font-weight: 700; fill: #fff; letter-spacing: 0.5px; }
+
+  /* ── Detail panel ───────────────────────────────────── */
+  #panel {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: linear-gradient(180deg, rgba(15,30,58,0.97) 0%, rgba(6,13,31,0.99) 100%);
+    border-top: 1px solid rgba(96,165,250,0.25);
+    border-radius: 24px 24px 0 0;
+    padding: 0 20px 32px;
+    transform: translateY(100%);
+    transition: transform 0.4s cubic-bezier(0.32,0.72,0,1);
+    z-index: 20;
+    max-height: 72vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  #panel.open { transform: translateY(0); }
+
+  #panel-handle {
+    width: 36px; height: 4px; border-radius: 2px;
+    background: rgba(255,255,255,0.2);
+    margin: 12px auto 16px; cursor: pointer;
+  }
+
+  #panel-header {
+    display: flex; align-items: center; gap: 14px;
+    margin-bottom: 14px;
+  }
+  #panel-emoji {
+    font-size: 40px; line-height: 1;
+    filter: drop-shadow(0 0 12px var(--panel-glow, #60a5fa));
+  }
+  #panel-title-wrap h2 {
+    font-size: 19px; font-weight: 700; letter-spacing: -0.3px;
+  }
+  #panel-status {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; font-weight: 600;
+    padding: 3px 9px; border-radius: 20px;
+    margin-top: 4px;
+    background: rgba(255,255,255,0.08);
+    color: #94a3b8;
+  }
+
+  #panel-facts { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+  #panel-facts li {
+    display: flex; gap: 12px;
+    background: rgba(255,255,255,0.04);
+    border-left: 3px solid var(--panel-glow, #60a5fa);
+    border-radius: 0 10px 10px 0;
+    padding: 11px 14px;
+    font-size: 13.5px; line-height: 1.5; color: #cbd5e1;
+  }
+  #panel-facts li span.icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+  #panel-facts li strong { color: #f1f5f9; }
+
+  #panel-footer {
+    margin-top: 16px; font-size: 11px; color: #475569;
+    text-align: center; line-height: 1.6;
+  }
+
+  #close-btn {
+    position: absolute; top: 16px; right: 20px;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: rgba(255,255,255,0.1);
+    border: none; cursor: pointer; color: #94a3b8;
+    font-size: 15px; display: flex; align-items: center; justify-content: center;
+  }
+
+  /* ── Tap hint ───────────────────────────────────────── */
+  #hint {
+    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; color: #475569; letter-spacing: 0.5px;
+    animation: fade-hint 1s ease 2s both;
+    pointer-events: none; white-space: nowrap;
+  }
+  @keyframes fade-hint {
+    0% { opacity: 1; } 100% { opacity: 0; }
+  }
+
+  /* ── Starfield ──────────────────────────────────────── */
+  .star { fill: rgba(255,255,255,0.5); animation: twinkle var(--dur,3s) ease-in-out infinite; }
+  @keyframes twinkle { 0%,100%{opacity:0.2} 50%{opacity:0.8} }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>🧬 Peptide Explorer</h1>
+  <p>Tap any bubble to explore how peptides are shaping the future of health</p>
+</div>
+
+<div id="canvas-wrap">
+  <svg id="main-svg"></svg>
+</div>
+
+<div id="panel">
+  <div id="panel-handle" onclick="closePanel()"></div>
+  <button id="close-btn" onclick="closePanel()">✕</button>
+  <div id="panel-header">
+    <div id="panel-emoji">🔬</div>
+    <div id="panel-title-wrap">
+      <h2 id="panel-title">Title</h2>
+      <div id="panel-status"><span id="panel-status-dot">🟢</span><span id="panel-status-text">FDA Approved</span></div>
+    </div>
+  </div>
+  <ul id="panel-facts"></ul>
+  <div id="panel-footer">
+    Sources: peer-reviewed journals &amp; WHO · April 2026<br>
+    <em>Educational only — not medical advice</em>
+  </div>
+</div>
+
+<div id="hint">✦ Tap a bubble to learn more</div>
+
+<script>
+// ── Data ──────────────────────────────────────────────────────────────────────
+const CENTER = {
+  id: 'center', emoji: '🧬', label: 'Peptides',
+  color: '#60a5fa', glow: '#3b82f6',
+  status: null
+};
+
+const NODES = [
+  {
+    id: 'glp1', emoji: '⚖️', label: 'Weight &\nGLP-1s',
+    color: '#34d399', glow: '#10b981',
+    statusDot: '🟢', statusText: 'FDA Approved · WHO Endorsed',
+    facts: [
+      { icon: '📉', text: '<strong>15–20% body weight loss</strong> in clinical trials — the most effective non-surgical obesity treatment ever discovered.' },
+      { icon: '❤️', text: 'Semaglutide reduced heart attack, stroke &amp; cardiovascular death by <strong>20%</strong> in a trial of 17,604 patients (NEJM).' },
+      { icon: '🌍', text: '<strong>WHO issued its first-ever global guideline</strong> endorsing GLP-1 medicines in December 2025 — obesity affects 1 billion+ people worldwide.' },
+      { icon: '💊', text: '<strong>Oral semaglutide approved in 2025</strong> — the first time a GLP-1 drug works as a daily pill instead of a weekly injection.' },
+    ]
+  },
+  {
+    id: 'cancer', emoji: '🎯', label: 'Cancer\nVaccines',
+    color: '#a78bfa', glow: '#8b5cf6',
+    statusDot: '🟡', statusText: 'Phase I / II Clinical Trials',
+    facts: [
+      { icon: '🧪', text: 'Personalized peptide vaccines are built from <strong>a patient\'s own tumor DNA</strong> — teaching the immune system to hunt and destroy their specific cancer cells.' },
+      { icon: '📊', text: 'Moderna\'s mRNA-4157/V940 showed a <strong>49% reduction in melanoma recurrence</strong> when combined with immunotherapy (Phase II).' },
+      { icon: '🏥', text: 'Mount Sinai\'s PGV001 vaccine: of 13 patients treated, <strong>3 are completely tumor-free</strong> at 5-year follow-up with no serious side effects.' },
+      { icon: '🔬', text: '<strong>30+ peptide cancer vaccine candidates</strong> reached Phase II trials by mid-2025. AI can now design a patient\'s custom vaccine in days.' },
+    ]
+  },
+  {
+    id: 'longevity', emoji: '⏳', label: 'Longevity &\nAnti-Aging',
+    color: '#fbbf24', glow: '#f59e0b',
+    statusDot: '🟡', statusText: 'Early Research / Animal Studies',
+    facts: [
+      { icon: '🧟', text: '<strong>FOXO4-DRI</strong> selectively destroys "zombie" senescent cells — aged mice showed improved kidney function, muscle strength, and fur regrowth.' },
+      { icon: '🔭', text: '<strong>Epithalon</strong> may elongate telomeres (the protective caps on DNA that shorten as we age) — studied since the 1980s in Russian research.' },
+      { icon: '⚡', text: '<strong>MOTS-c</strong>, a mitochondrial peptide, acts like an "exercise mimetic" — improving insulin sensitivity and metabolic health in early human trials.' },
+      { icon: '⚠️', text: 'Most longevity peptides are still in animal studies. <strong>No peptide is FDA-approved for lifespan extension</strong> — the science is real but early.' },
+    ]
+  },
+  {
+    id: 'repair', emoji: '🩹', label: 'Tissue\nRepair',
+    color: '#fb923c', glow: '#f97316',
+    statusDot: '🟡', statusText: 'Strong Animal Data · Limited Human Trials',
+    facts: [
+      { icon: '💪', text: '<strong>BPC-157</strong> (from gastric juice) shows accelerated tendon, ligament, muscle, and bone healing in dozens of animal studies.' },
+      { icon: '🩸', text: '<strong>TB-500</strong> (Thymosin Beta-4) promotes cell migration, new blood vessel growth, and anti-inflammatory signaling at injury sites.' },
+      { icon: '🧑‍⚕️', text: 'In one human knee study, <strong>7 of 12 patients with chronic pain felt relief for 6+ months</strong> after a single BPC-157 injection.' },
+      { icon: '⚠️', text: '<strong>Neither is FDA-approved</strong>. No large human RCTs exist yet. Both were restored to legal compounding access in February 2026 (with a prescription).' },
+    ]
+  },
+  {
+    id: 'brain', emoji: '🧠', label: 'Brain &\nNeurology',
+    color: '#60a5fa', glow: '#3b82f6',
+    statusDot: '🟡', statusText: 'Active Clinical Trials',
+    facts: [
+      { icon: '🚧', text: 'Oregon State cracked the <strong>blood-brain barrier</strong> using peptide-functionalized nanoparticles — opening the door to treating brain diseases that were previously unreachable.' },
+      { icon: '🤝', text: 'Exenatide (a GLP-1 drug) showed <strong>significant motor improvement in Parkinson\'s patients</strong> in a 2025 double-blind trial — larger Phase III trials are now planned.' },
+      { icon: '🔬', text: 'A 4-amino-acid peptide called <strong>CAQK</strong> reduced inflammation, cell death, and brain tissue damage in traumatic brain injury models.' },
+      { icon: '🌟', text: 'UCLA scientists recorded real-time spikes in the peptide <strong>hypocretin during joy and social connection</strong> — laying groundwork for peptide-based depression treatment.' },
+    ]
+  },
+  {
+    id: 'gut', emoji: '🌿', label: 'Gut &\nMicrobiome',
+    color: '#2dd4bf', glow: '#14b8a6',
+    statusDot: '🟡', statusText: 'Active Research · Some Approved',
+    facts: [
+      { icon: '🔗', text: 'There are more neurons in your gut than in your spinal cord. Gut peptides directly regulate brain chemistry — disruption is now linked to <strong>Parkinson\'s, Alzheimer\'s &amp; depression</strong>.' },
+      { icon: '🛡️', text: '<strong>GLP-2 analog (teduglutide)</strong> is FDA-approved for short bowel syndrome — it protects and rebuilds the intestinal lining.' },
+      { icon: '🔥', text: 'The tripeptide <strong>KPV</strong> shows powerful anti-inflammatory effects in intestinal models — a potential future therapy for Crohn\'s and IBD.' },
+      { icon: '💡', text: 'Systematic reviews show <strong>brain-gut peptide dysregulation plays a central role in depression</strong> — the gut may be a new target for mental health treatment.' },
+    ]
+  },
+  {
+    id: 'heart', emoji: '❤️', label: 'Heart\nHealth',
+    color: '#f87171', glow: '#ef4444',
+    statusDot: '🟡', statusText: 'Preclinical + Early Human Research',
+    facts: [
+      { icon: '📡', text: '<strong>Natriuretic peptides (BNP)</strong> are already used clinically as a blood test to diagnose heart failure — measuring them tells doctors how stressed your heart is.' },
+      { icon: '💉', text: 'The synthetic peptide <strong>S100A1ct</strong> improved cardiac performance and survival in preclinical heart failure models, published in the AHA\'s flagship journal.' },
+      { icon: '🧫', text: 'Peptide hydrogels injected after a heart attack <strong>reduce scar formation and stimulate new blood vessel growth</strong> — early animal results are striking.' },
+      { icon: '🥛', text: '<strong>Milk-derived lactokinins</strong> inhibit ACE (the same mechanism as common blood pressure drugs) — found naturally in fermented dairy like kefir and yogurt.' },
+    ]
+  },
+  {
+    id: 'bugs', emoji: '🦠', label: 'Fighting\nSuperbugs',
+    color: '#a3e635', glow: '#84cc16',
+    statusDot: '🟡', statusText: 'Active Research · Pipeline Growing',
+    facts: [
+      { icon: '💀', text: 'Antibiotic-resistant bacteria kill <strong>5 million+ people per year</strong> — projected to exceed cancer deaths by 2050 if nothing changes.' },
+      { icon: '🔪', text: 'Antimicrobial peptides (AMPs) <strong>physically rupture bacterial membranes</strong> — a mechanism bacteria find nearly impossible to evolve resistance against.' },
+      { icon: '🤖', text: 'A 2025 Nature Microbiology paper showed AI-designed AMPs matched or <strong>beat clinical antibiotics against MRSA and drug-resistant Acinetobacter</strong> in animal models.' },
+      { icon: '🌍', text: 'AMPs could become the <strong>first entirely new antibiotic class</strong> in decades — with first human trials expected by 2027.' },
+    ]
+  },
+  {
+    id: 'mental', emoji: '🧘', label: 'Mental\nHealth',
+    color: '#f472b6', glow: '#ec4899',
+    statusDot: '🟡', statusText: 'Early Research · Promising Mechanisms',
+    facts: [
+      { icon: '😊', text: 'UCLA researchers recorded real-time <strong>spikes in the peptide hypocretin during moments of joy and laughter</strong> — depression may involve measurable deficiency of this peptide.' },
+      { icon: '🧪', text: '<strong>Selank</strong>, an anxiolytic peptide, increases natural opioid-like compounds in the brain (leu-enkephalin) and is used clinically in Russia for anxiety.' },
+      { icon: '💬', text: '<strong>Oxytocin nasal spray</strong> is in clinical trials for PTSD, social anxiety, and alcohol use disorder — delivering rapid stress reduction and social bonding effects.' },
+      { icon: '🔬', text: '<strong>TCAP-1</strong> directly suppresses cortisol-driven stress responses and is being studied for PTSD and opioid use disorder — reduces drug-seeking behavior in animal models.' },
+    ]
+  },
+  {
+    id: 'skin', emoji: '✨', label: 'Skin &\nHealing',
+    color: '#fb7185', glow: '#f43f5e',
+    statusDot: '🟢', statusText: 'Widely Used · Clinical Evidence Growing',
+    facts: [
+      { icon: '📈', text: 'Bioactive peptides can increase collagen synthesis by up to <strong>340% in dermal cells</strong> (Journal of Investigative Dermatology).' },
+      { icon: '🔬', text: 'A 2025 randomized double-blind placebo-controlled trial confirmed <strong>bioactive collagen peptides measurably improve skin elasticity and hydration</strong>.' },
+      { icon: '🩹', text: 'Peptides improve wound healing efficiency by <strong>10–30%</strong> in clinical wound care settings — used in diabetic ulcers, burns, and surgical wounds.' },
+      { icon: '🐟', text: 'Marine collagen peptides (13g/day, 3 months) reduced fasting insulin by <strong>19.8% and improved insulin sensitivity by 20%</strong> in Type 2 diabetic patients.' },
+    ]
+  },
+];
+
+// ── SVG Setup ─────────────────────────────────────────────────────────────────
+const svg = document.getElementById('main-svg');
+let W, H, R, activeNode = null;
+
+function resize() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  svg.setAttribute('width', W);
+  svg.setAttribute('height', H);
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  render();
+}
+
+// ── Starfield ─────────────────────────────────────────────────────────────────
+function makeStars() {
+  const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+  for (let i = 0; i < 120; i++) {
+    const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    c.setAttribute('cx', Math.random() * 2000);
+    c.setAttribute('cy', Math.random() * 1200);
+    c.setAttribute('r',  Math.random() * 1.2 + 0.3);
+    c.classList.add('star');
+    c.style.setProperty('--dur', (2 + Math.random() * 4) + 's');
+    c.style.animationDelay = (Math.random() * 4) + 's';
+    g.appendChild(c);
+  }
+  return g;
+}
+
+// ── Node positions ─────────────────────────────────────────────────────────────
+function nodePositions() {
+  const cx = W / 2, cy = H / 2;
+  R = Math.min(W, H) * 0.33;
+  const positions = [{ x: cx, y: cy, node: CENTER }];
+  NODES.forEach((n, i) => {
+    const angle = (i / NODES.length) * Math.PI * 2 - Math.PI / 2;
+    positions.push({ x: cx + R * Math.cos(angle), y: cy + R * Math.sin(angle), node: n });
+  });
+  return positions;
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────────
+function render() {
+  svg.innerHTML = '';
+  svg.appendChild(makeStars());
+
+  const positions = nodePositions();
+  const cx = positions[0].x, cy = positions[0].y;
+
+  // ── Dashed connection lines
+  const lineG = document.createElementNS('http://www.w3.org/2000/svg','g');
+  positions.slice(1).forEach(p => {
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1', cx); line.setAttribute('y1', cy);
+    line.setAttribute('x2', p.x); line.setAttribute('y2', p.y);
+    line.classList.add('link-line');
+    lineG.appendChild(line);
+  });
+  svg.appendChild(lineG);
+
+  // ── Nodes
+  positions.forEach((p, idx) => {
+    const isCenter = idx === 0;
+    const n = p.node;
+    const r = isCenter ? 52 : Math.min(W, H) * 0.072;
+
+    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+    g.classList.add('node');
+    if (isCenter) g.classList.add('center-node');
+    if (!isCenter && activeNode === n.id) g.classList.add('active');
+    g.style.setProperty('--glow', n.glow);
+    g.style.setProperty('--pr-start', r + 'px');
+    g.style.setProperty('--pr-end', (r + 22) + 'px');
+    g.setAttribute('transform', `translate(${p.x},${p.y})`);
+
+    // Pulse ring
+    const ring = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    ring.setAttribute('r', r + 6); ring.classList.add('pulse-ring');
+    g.appendChild(ring);
+
+    // Glow gradient
+    const gradId = `grad-${n.id || 'center'}`;
+    const defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
+    const grad = document.createElementNS('http://www.w3.org/2000/svg','radialGradient');
+    grad.setAttribute('id', gradId);
+    const s1 = document.createElementNS('http://www.w3.org/2000/svg','stop');
+    s1.setAttribute('offset','0%'); s1.setAttribute('stop-color', n.color); s1.setAttribute('stop-opacity','0.95');
+    const s2 = document.createElementNS('http://www.w3.org/2000/svg','stop');
+    s2.setAttribute('offset','100%'); s2.setAttribute('stop-color', n.glow); s2.setAttribute('stop-opacity','0.7');
+    grad.appendChild(s1); grad.appendChild(s2);
+    defs.appendChild(grad);
+    g.appendChild(defs);
+
+    // Main circle
+    const circle = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    circle.setAttribute('r', r);
+    circle.classList.add('bg');
+    circle.setAttribute('fill', `url(#${gradId})`);
+    circle.setAttribute('stroke', n.color);
+    circle.setAttribute('stroke-width', isCenter ? 2 : 1.5);
+    circle.setAttribute('stroke-opacity', '0.6');
+    g.appendChild(circle);
+
+    // Emoji
+    const emoji = document.createElementNS('http://www.w3.org/2000/svg','text');
+    emoji.classList.add('emoji');
+    emoji.setAttribute('y', isCenter ? -8 : -10);
+    emoji.textContent = n.emoji;
+    g.appendChild(emoji);
+
+    // Label
+    const labelLines = n.label.split('\n');
+    labelLines.forEach((line, li) => {
+      const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+      t.classList.add('label');
+      t.setAttribute('y', isCenter ? 14 : (labelLines.length === 1 ? 10 : 8 + li * 13));
+      t.textContent = line;
+      g.appendChild(t);
+    });
+
+    // Status dot (non-center)
+    if (!isCenter && n.statusDot) {
+      const sd = document.createElementNS('http://www.w3.org/2000/svg','text');
+      sd.classList.add('status-dot');
+      sd.setAttribute('y', labelLines.length > 1 ? 32 : 22);
+      sd.textContent = n.statusDot;
+      g.appendChild(sd);
+    }
+
+    // Click handler
+    if (!isCenter) {
+      g.addEventListener('click', () => openPanel(n));
+      g.addEventListener('touchstart', (e) => { e.preventDefault(); openPanel(n); }, { passive: false });
+    }
+
+    svg.appendChild(g);
+  });
+}
+
+// ── Panel ──────────────────────────────────────────────────────────────────────
+function openPanel(node) {
+  activeNode = node.id;
+  render();
+
+  document.getElementById('panel-emoji').textContent = node.emoji;
+  document.getElementById('panel-emoji').style.setProperty('--panel-glow', node.glow);
+  document.getElementById('panel-title').textContent = node.label.replace('\n',' ');
+  document.getElementById('panel-status-dot').textContent = node.statusDot;
+  document.getElementById('panel-status-text').textContent = node.statusText;
+
+  const panel = document.getElementById('panel');
+  panel.style.setProperty('--panel-glow', node.glow);
+  panel.style.borderTopColor = node.color + '55';
+
+  const ul = document.getElementById('panel-facts');
+  ul.innerHTML = '';
+  node.facts.forEach(f => {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="icon">${f.icon}</span><span>${f.text}</span>`;
+    ul.appendChild(li);
+  });
+
+  panel.classList.add('open');
+  document.getElementById('hint').style.display = 'none';
+}
+
+function closePanel() {
+  document.getElementById('panel').classList.remove('open');
+  activeNode = null;
+  render();
+}
+
+// ── Swipe down to close ────────────────────────────────────────────────────────
+let touchStartY = 0;
+document.getElementById('panel').addEventListener('touchstart', e => {
+  touchStartY = e.touches[0].clientY;
+}, { passive: true });
+document.getElementById('panel').addEventListener('touchend', e => {
+  if (e.changedTouches[0].clientY - touchStartY > 60) closePanel();
+}, { passive: true });
+
+// ── Click outside to close ────────────────────────────────────────────────────
+document.getElementById('canvas-wrap').addEventListener('click', e => {
+  if (e.target === svg || e.target.classList.contains('star') || e.target.tagName === 'line') {
+    closePanel();
+  }
+});
+
+window.addEventListener('resize', resize);
+resize();
+</script>
+</body>
+</html>
